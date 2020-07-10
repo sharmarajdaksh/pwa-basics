@@ -1,43 +1,57 @@
-var CACHE_STATIC_NAME = "static-v1.0.1";
-var CACHE_DYNAMIC_NAME = "dynamic-v1.0.0";
+importScripts("/src/js/idb.js");
+importScripts("/src/js/utility.js");
 
-self.addEventListener("install", (event) => {
-  // Wait until passed function(s) execute
+var CACHE_STATIC_NAME = "static-v1.0.10";
+var CACHE_DYNAMIC_NAME = "dynamic-v2";
+var STATIC_FILES = [
+  "/",
+  "/index.html",
+  "/offline.html",
+  "/src/js/app.js",
+  "/src/js/feed.js",
+  "/src/js/idb.js",
+  "/src/js/fetch.js",
+  "/src/js/promise.js",
+  "/src/js/material.min.js",
+  "/src/css/app.css",
+  "/src/css/feed.css",
+  "/src/images/main-image.jpg",
+  "https://fonts.googleapis.com/css?family=Roboto:400,700",
+  "https://fonts.googleapis.com/icon?family=Material+Icons",
+  "https://cdnjs.cloudflare.com/ajax/libs/material-design-lite/1.3.0/material.indigo-pink.min.css",
+];
+
+// function trimCache(cacheName, maxItems) {
+//   caches.open(cacheName)
+//     .then(function (cache) {
+//       return cache.keys()
+//         .then(function (keys) {
+//           if (keys.length > maxItems) {
+//             cache.delete(keys[0])
+//               .then(trimCache(cacheName, maxItems));
+//           }
+//         });
+//     })
+// }
+
+self.addEventListener("install", function (event) {
+  console.log("[Service Worker] Installing Service Worker ...", event);
   event.waitUntil(
-    // Open a new cache (subcache, basically)
-    caches.open(CACHE_STATIC_NAME).then((cache) => {
-      // Precache app shell
-      // add() makes the request, and caches result
-      // cache.add("/");
-      // cache.add("/index.html");
-      // cache.add("/src/js/app.js");
-      // use addAll for multiple requests
-      cache.addAll([
-        "/",
-        "/index.html",
-        "/src/js/app.js",
-        "/src/js/feed.js",
-        "/src/js/promise.js",
-        "/src/js/fetch.js",
-        "/src/js/material.min.js",
-        "/src/css/app.css",
-        "/src/css/feed.css",
-        "/src/images/main-image.jpg",
-        "https://fonts.googleapis.com/css?family=Roboto:400,700",
-        "https://fonts.googleapis.com/icon?family=Material+Icons",
-        "https://cdnjs.cloudflare.com/ajax/libs/material-design-lite/1.3.0/material.indigo-pink.min.css",
-      ]);
+    caches.open(CACHE_STATIC_NAME).then(function (cache) {
+      console.log("[Service Worker] Precaching App Shell");
+      cache.addAll(STATIC_FILES);
     })
   );
 });
 
-self.addEventListener("activate", (event) => {
-  // Ensure that the worker did activate
+self.addEventListener("activate", function (event) {
+  console.log("[Service Worker] Activating Service Worker ....", event);
   event.waitUntil(
-    caches.keys().then((keyList) => {
+    caches.keys().then(function (keyList) {
       return Promise.all(
-        keyList.map((key) => {
+        keyList.map(function (key) {
           if (key !== CACHE_STATIC_NAME && key !== CACHE_DYNAMIC_NAME) {
+            console.log("[Service Worker] Removing old cache.", key);
             return caches.delete(key);
           }
         })
@@ -47,23 +61,152 @@ self.addEventListener("activate", (event) => {
   return self.clients.claim();
 });
 
-self.addEventListener("fetch", (event) => {
-  // Respond to the fetch request
-  event.respondWith(
-    // Check if request is cached
-    caches.match(event.request).then((response) => {
-      if (response) return response;
+function isInArray(string, array) {
+  var cachePath;
+  if (string.indexOf(self.origin) === 0) {
+    // request targets domain where we serve the page from (i.e. NOT a CDN)
+    console.log("matched ", string);
+    cachePath = string.substring(self.origin.length); // take the part of the URL AFTER the domain (e.g. after localhost:8080)
+  } else {
+    cachePath = string; // store the full request (for CDNs)
+  }
+  return array.indexOf(cachePath) > -1;
+}
 
-      // Cache the dynamic response
-      return fetch(event.request).then((res) => {
-        caches.open(CACHE_DYNAMIC_NAME).then((cache) => {
-          // put() stores a request-response pair to cache
-          cache.put(event.request.url, res.clone());
-          // We use res.clone() above as, by default, a response can be
-          // consumer exactly once only
-          return res;
-        });
-      });
-    })
-  );
+self.addEventListener("fetch", function (event) {
+  var url = "https://pwagram-5cf3b.firebaseio.com/posts.json";
+  if (event.request.url.indexOf(url) > -1) {
+    event.respondWith(
+      fetch(event.request).then(function (res) {
+        var clonedRes = res.clone();
+        clearAllData("posts")
+          .then(function () {
+            return clonedRes.json();
+          })
+          .then(function (data) {
+            for (key in data) {
+              writeData("posts", data[key]);
+            }
+          });
+
+        return res;
+      })
+    );
+  } else if (isInArray(event.request.url, STATIC_FILES)) {
+    event.respondWith(caches.match(event.request));
+  } else {
+    event.respondWith(
+      caches.match(event.request).then(function (response) {
+        if (response) {
+          return response;
+        } else {
+          return fetch(event.request)
+            .then(function (res) {
+              return caches.open(CACHE_DYNAMIC_NAME).then(function (cache) {
+                // trimCache(CACHE_DYNAMIC_NAME, 3);
+                cache.put(event.request.url, res.clone());
+                return res;
+              });
+            })
+            .catch(function (err) {
+              return caches.open(CACHE_STATIC_NAME).then(function (cache) {
+                if (event.request.headers.get("accept").includes("text/html")) {
+                  return cache.match("/offline.html");
+                }
+              });
+            });
+        }
+      })
+    );
+  }
+});
+
+// self.addEventListener('fetch', function(event) {
+//   event.respondWith(
+//     caches.match(event.request)
+//       .then(function(response) {
+//         if (response) {
+//           return response;
+//         } else {
+//           return fetch(event.request)
+//             .then(function(res) {
+//               return caches.open(CACHE_DYNAMIC_NAME)
+//                 .then(function(cache) {
+//                   cache.put(event.request.url, res.clone());
+//                   return res;
+//                 })
+//             })
+//             .catch(function(err) {
+//               return caches.open(CACHE_STATIC_NAME)
+//                 .then(function(cache) {
+//                   return cache.match('/offline.html');
+//                 });
+//             });
+//         }
+//       })
+//   );
+// });
+
+// self.addEventListener('fetch', function(event) {
+//   event.respondWith(
+//     fetch(event.request)
+//       .then(function(res) {
+//         return caches.open(CACHE_DYNAMIC_NAME)
+//                 .then(function(cache) {
+//                   cache.put(event.request.url, res.clone());
+//                   return res;
+//                 })
+//       })
+//       .catch(function(err) {
+//         return caches.match(event.request);
+//       })
+//   );
+// });
+
+// Cache-only
+// self.addEventListener('fetch', function (event) {
+//   event.respondWith(
+//     caches.match(event.request)
+//   );
+// });
+
+// Network-only
+// self.addEventListener('fetch', function (event) {
+//   event.respondWith(
+//     fetch(event.request)
+//   );
+// });
+
+self.addEventListener("sync", function (event) {
+  console.log("[Service Worker] Background syncing", event);
+
+  if (event.tag === "sync-new-posts") {
+    event.waitUntil();
+    readAllData("sync-posts").then(function (data) {
+      for (var dt of data) {
+        fetch("https://pwagram-5cf3b.firebaseio.com/posts.json", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+          },
+          body: JSON.stringify({
+            id: dt.id,
+            title: dt.title,
+            location: dt.location,
+            image: dt.image,
+          }),
+        })
+          .then(function (res) {
+            console.log("Sent data", res);
+            if (res.ok) {
+              deleteItemFromData("sync-posts", dt.id);
+            }
+          })
+          .catch(function (err) {
+            console.log(err);
+          });
+      }
+    });
+  }
 });

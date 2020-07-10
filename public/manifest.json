@@ -1,6 +1,6 @@
 {
-  "name": "InstaClone",
-  "short_name": "InstaClone",
+  "name": "Instagram as Progressive Web App",
+  "short_name": "PWAGram",
   "icons": [
     {
       "src": "/src/images/icons/app-icon-48x48.png",
@@ -43,8 +43,8 @@
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#fff",
-  "theme_color": "#3F51B5",
-  "description": "An Instagram Clone with a lot of PWA love.",
+  "theme_color": "#3f51b5",
+  "description": "A simple Instagram Clone, implementing a lot of PWA love.",
   "dir": "ltr",
   "lang": "en-US"
 }
