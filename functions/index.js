@@ -2,6 +2,8 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 var cors = require("cors")({ origin: true });
 
+var vapidPrivateKey = "QzZ21Vpi2a09lAQVJu343ub2kzc8w8ZZYw3FFSIeue8";
+
 admin.initializeApp({
   databaseURL: "url for your realitime db",
   credential: admin.credential.cert(
